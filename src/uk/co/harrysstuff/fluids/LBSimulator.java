@@ -7,6 +7,7 @@ import uk.co.harrysstuff.engine.AbstractGame;
 import uk.co.harrysstuff.engine.GameContainer;
 
 import javax.vecmath.Vector2d;
+import java.awt.*;
 
 public class LBSimulator extends AbstractGame {
     private int latticeW, latticeH;
@@ -30,8 +31,8 @@ public class LBSimulator extends AbstractGame {
             1/36., 1/36., 1/36., 1/36.
     };
 
-    private static final double RELAXATION_RATE = 1;  // should be in [0.5, 2]
-    private static final double DENSITY = 3;
+    private static final double RELAXATION_RATE = 1.5;  // should be in [0.5, 2]
+    private double globalDensity = 0;
 
     public LBSimulator(int width, int height) {
         this.latticeW = width;
@@ -44,24 +45,37 @@ public class LBSimulator extends AbstractGame {
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 for (int i = 0; i < 9; i++) {
-                    lattice[x][y][i] = 0;
+                    if (i == VectorDirections.REST.getIndex()) lattice[x][y][i] = 0;
+                    else lattice[x][y][i] = 0;
                     latticeBuffer[x][y][i] = 0;
                 }
             }
         }
 
-        // Set lattice boundary
+        // Initialise lattice layout
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 latticeLayout[x][y] = PointType.AIR;
             }
         }
+        // Set lattice boundary
         for (int x = 0; x < latticeW; x++) latticeLayout[x][0] = latticeLayout[x][latticeH-1] = PointType.BOUNDARY;
         for (int y = 0; y < latticeH; y++) latticeLayout[0][y] = latticeLayout[latticeW-1][y] = PointType.BOUNDARY;
+        for (int x = 0; x < latticeW; x += 20) {
+            for (int y = latticeH/2; y < latticeH; y++) {
+                latticeLayout[x][y] = PointType.BOUNDARY;
+            }
+        }
+
+        // Place fluid
+        for (int y = 60; y < 80; y++) {
+            lattice[10][y][VectorDirections.RIGHT.getIndex()] = 30;
+        }
     }
 
     @Override
     public void render() {
+        // TODO: Interpolate larger lattice onto screen
         // Calculate maximum local density across lattice
         float maxDensity = -1f;
         for (int x = 0; x < latticeW; x++) {
@@ -79,26 +93,37 @@ public class LBSimulator extends AbstractGame {
                     case AIR -> {
                         float localDensity = calculateLocalDensity(x, y);
                         double proportion = 1 - localDensity / maxDensity;
-                        colour = Conversions.HSVtoRGB(new HSV(240 * proportion, 1, 1)).asInt();
+                        colour = Conversions.HSVtoRGB(new HSV(0, 0, 1- proportion)).asInt();
                         if (localDensity == 0) colour = 0;
-                        break;
                     }
-                    case BOUNDARY -> {
-                        colour = 0xff4400;
-                        break;
-                    }
+                    case BOUNDARY -> colour = 0xffff00;
                 }
                 gc.getRenderer().setPixel(x, y, colour);
             }
         }
 
     }
-    private int counter = -2;
+    private int counter = 0;
     @Override
     public void update() {
+        // TODO: Parallelize
         counter++;
-        if (counter == 2) {counter = 0;} else return;
-        for (int y = 15; y < 80; y++) lattice[50][y][7] = (float) Math.random();
+        if (counter == 2) counter = 0; else return;
+        // Place fluid
+        for (int y = 20; y < 60; y++) {
+            lattice[1][y][VectorDirections.DOWNRIGHT.getIndex()] = 7;
+            lattice[1][y][VectorDirections.UP.getIndex()] = 1;
+            lattice[1][y][VectorDirections.DOWN.getIndex()] = 8;
+            lattice[1][y][VectorDirections.UPRIGHT.getIndex()] = 2;
+            lattice[1][y][VectorDirections.RIGHT.getIndex()] = 5;
+        }
+        globalDensity = 0;
+        for (int x = 0; x < latticeW; x++) {
+            for (int y = 0; y < latticeH; y++) {
+                if (latticeLayout[x][y] == PointType.AIR) globalDensity += calculateLocalDensity(x, y);
+            }
+        }
+        globalDensity /= (latticeW * latticeH);
         collisions();
         stream();
     }
@@ -124,7 +149,7 @@ public class LBSimulator extends AbstractGame {
                             boolean verticalBoundary = latticeLayout[x + (int) D2Q9Vectors[i].x][y] == PointType.BOUNDARY;
                             boolean horizontalBoundary = latticeLayout[x][y + (int) D2Q9Vectors[i].y] == PointType.BOUNDARY;
                             // Corner boundary
-                            if (!(verticalBoundary ^ horizontalBoundary))
+                            if (verticalBoundary == horizontalBoundary)
                                 if (i == 5 || i == 7)
                                     latticeBuffer[x][y][12-i] = lattice[x][y][i];
                                 else
@@ -132,19 +157,19 @@ public class LBSimulator extends AbstractGame {
                             // Floor or ceiling boundary
                             else if (horizontalBoundary) {
                                 switch (i) {
-                                    case 5: latticeBuffer[x + 2][y][8] = lattice[x][y][i]; break;
-                                    case 6: latticeBuffer[x - 2][y][7] = lattice[x][y][i]; break;
-                                    case 7: latticeBuffer[x - 2][y][6] = lattice[x][y][i]; break;
-                                    case 8: latticeBuffer[x + 2][y][5] = lattice[x][y][i]; break;
+                                    case 5 -> latticeBuffer[x + 2][y][8] = lattice[x][y][i];
+                                    case 6 -> latticeBuffer[x - 2][y][7] = lattice[x][y][i];
+                                    case 7 -> latticeBuffer[x - 2][y][6] = lattice[x][y][i];
+                                    case 8 -> latticeBuffer[x + 2][y][5] = lattice[x][y][i];
                                 }
                             }
                             // Wall
                             else {
                                 switch (i) {
-                                    case 5: latticeBuffer[x][y + 2][6] = lattice[x][y][i]; break;
-                                    case 6: latticeBuffer[x][y + 2][5] = lattice[x][y][i]; break;
-                                    case 7: latticeBuffer[x][y - 2][8] = lattice[x][y][i]; break;
-                                    case 8: latticeBuffer[x][y - 2][7] = lattice[x][y][i]; break;
+                                    case 5 -> latticeBuffer[x][y + 2][6] = lattice[x][y][i];
+                                    case 6 -> latticeBuffer[x][y + 2][5] = lattice[x][y][i];
+                                    case 7 -> latticeBuffer[x][y - 2][8] = lattice[x][y][i];
+                                    case 8 -> latticeBuffer[x][y - 2][7] = lattice[x][y][i];
                                 }
                             }
                         }
@@ -156,9 +181,7 @@ public class LBSimulator extends AbstractGame {
         }
         for (int x = 0; x < latticeW; x++){
             for (int y = 0; y < latticeH; y++){
-                for (int i = 0;  i < 9; i++) {
-                    lattice[x][y][i] = latticeBuffer[x][y][i];
-                }
+                System.arraycopy(latticeBuffer[x][y], 0, lattice[x][y], 0, 9);
             }
         }
     }
@@ -171,14 +194,14 @@ public class LBSimulator extends AbstractGame {
                 for (VectorDirections d : VectorDirections.values()) {
                     int i = d.getIndex();
                     // TODO: Implement correct algorithm
-                    /*
+
                     double eDotVel = D2Q9Vectors[i].dot(velocity);
-                    eqDist = DENSITY * vectorWeights[i]
-                            * (1+ 3 * eDotVel
+                    eqDist = globalDensity * vectorWeights[i]
+                            * (1 + 3 * eDotVel
                             - (3/2.) * velocity.dot(velocity)
                             + (9/2.) * eDotVel * eDotVel);
-                    lattice[x][y][i] += (1 / RELAXATION_RATE) * (eqDist - lattice[x][y][i]); */
-                    lattice[x][y][i] -= Math.random() * 0.01;
+                    lattice[x][y][i] += (1 / RELAXATION_RATE) * (eqDist - lattice[x][y][i]);
+                    //lattice[x][y][i] -= Math.random() * 0.01;
                     lattice[x][y][i] = Math.max(lattice[x][y][i], 0);
                 }
             }
