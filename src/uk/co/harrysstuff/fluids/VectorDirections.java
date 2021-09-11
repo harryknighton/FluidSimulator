@@ -11,8 +11,8 @@ public enum VectorDirections {
     UPLEFT (7),
     UPRIGHT (8);
 
-    private int index;
-    private VectorDirections(int index) {
+    private final int index;
+    VectorDirections(int index) {
         this.index = index;
     }
 
