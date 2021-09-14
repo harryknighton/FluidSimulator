@@ -18,25 +18,8 @@ public class LBSimulator extends AbstractGame {
     private final double[][][] lattice;
     private final double[][][] latticeBuffer;
     private final PointType [][] latticeLayout;
-    // TODO: Combine all basis vector data into VectorDirections
-    private final static Vector2d[] D2Q9Vectors = new Vector2d[]{
-            new Vector2d(0, 0),
-            new Vector2d(1, 0),
-            new Vector2d(0, 1),
-            new Vector2d(-1, 0),
-            new Vector2d(0, -1),
-            new Vector2d(1, 1),
-            new Vector2d(-1, 1),
-            new Vector2d(-1, -1),
-            new Vector2d(1, -1)
-    };
-    private final static double[] vectorWeights = new double[]{
-            4./9.,
-            1/9., 1/9., 1/9., 1/9.,
-            1/36., 1/36., 1/36., 1/36.
-    };
 
-    private static final double RELAXATION_RATE = 1;  // should be in [0.5, 2]
+    private static final double RELAXATION_RATE = 2;  // should be in [0.5, 2]
     private float maxDensity = -1f;
 
     /**
@@ -64,7 +47,7 @@ public class LBSimulator extends AbstractGame {
         // Initialise lattice layout
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
-                latticeLayout[x][y] = PointType.AIR;
+                latticeLayout[x][y] = PointType.FLUID;
             }
         }
         // Set lattice boundary
@@ -75,21 +58,15 @@ public class LBSimulator extends AbstractGame {
         }
 
         // Place fluid
+        int downright = BasisVectors.getIndex(1, 1);
         Vector2d midpoint = new Vector2d(latticeW/2, latticeH/2);
         for (int x = -20; x <= 20; x++) {
             for (int y = -20; y <= 20; y++) {
                 double dist = x*x + y*y;
+                if (latticeLayout[(int)midpoint.x + x][(int)midpoint.y + y] == PointType.BOUNDARY) continue;
                 if (dist <= 40)
-                    lattice[(int)midpoint.x + x][(int)midpoint.y + y][VectorDirections.DOWNRIGHT.getIndex()]
+                    lattice[(int)midpoint.x + x][(int)midpoint.y + y][downright]
                             = 100 * (1 - dist/40);
-            }
-        }
-
-        // Calculate maxDensity
-        for (int x = 0; x < latticeW; x++) {
-            for (int y = 0; y < latticeH; y++) {
-                float localDensity = calculateLocalDensity(x, y);
-                if (localDensity > maxDensity) maxDensity = localDensity;
             }
         }
 
@@ -99,14 +76,21 @@ public class LBSimulator extends AbstractGame {
     public void render() {
         // TODO: Interpolate larger lattice onto screen
         // Calculate maximum local density across lattice
-
+        // Calculate maxDensity
+        maxDensity = 0;
+        for (int x = 0; x < latticeW; x++) {
+            for (int y = 0; y < latticeH; y++) {
+                float localDensity = calculateLocalDensity(x, y);
+                if (localDensity > maxDensity) maxDensity = localDensity;
+            }
+        }
 
         // Render Lattice
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 int colour = -1;
                 switch (latticeLayout[x][y]) {
-                    case AIR -> {
+                    case FLUID -> {
                         float localDensity = calculateLocalDensity(x, y);
                         double proportion = 1 - localDensity / maxDensity;
                         //colour = Conversions.HSVtoRGB(new HSV(240*proportion, 1, 0.8)).asInt();
@@ -139,46 +123,22 @@ public class LBSimulator extends AbstractGame {
      * Moves all particles in the direction of their basis vector one unit
      */
     private void stream() {
-        // TODO: Clean Up
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
-                for (VectorDirections d : VectorDirections.values()) {
-                    int i = d.getIndex();
-                    if (latticeLayout[x][y] == PointType.BOUNDARY) continue;
-                    if (latticeLayout[x + (int) D2Q9Vectors[i].x][y + (int) D2Q9Vectors[i].y] == PointType.BOUNDARY) {
-                        if (i == 1 || i == 3) latticeBuffer[x][y][4-i] = lattice[x][y][i];
-                        if (i == 2 || i == 4) latticeBuffer[x][y][6-i] = lattice[x][y][i];
-                        else if (i >= 5 && i <= 8) {
-                            boolean verticalBoundary = latticeLayout[x + (int) D2Q9Vectors[i].x][y] == PointType.BOUNDARY;
-                            boolean horizontalBoundary = latticeLayout[x][y + (int) D2Q9Vectors[i].y] == PointType.BOUNDARY;
-                            // Corner boundary
-                            if (verticalBoundary == horizontalBoundary)
-                                if (i == 5 || i == 7)
-                                    latticeBuffer[x][y][12-i] = lattice[x][y][i];
-                                else
-                                    latticeBuffer[x][y][14-i] = lattice[x][y][i];
-                            // Floor or ceiling boundary
-                            else if (horizontalBoundary) {
-                                switch (i) {
-                                    case 5 -> latticeBuffer[x + 2][y][8] = lattice[x][y][i];
-                                    case 6 -> latticeBuffer[x - 2][y][7] = lattice[x][y][i];
-                                    case 7 -> latticeBuffer[x - 2][y][6] = lattice[x][y][i];
-                                    case 8 -> latticeBuffer[x + 2][y][5] = lattice[x][y][i];
-                                }
-                            }
-                            // Wall
-                            else {
-                                switch (i) {
-                                    case 5 -> latticeBuffer[x][y + 2][6] = lattice[x][y][i];
-                                    case 6 -> latticeBuffer[x][y + 2][5] = lattice[x][y][i];
-                                    case 7 -> latticeBuffer[x][y - 2][8] = lattice[x][y][i];
-                                    case 8 -> latticeBuffer[x][y - 2][7] = lattice[x][y][i];
-                                }
-                            }
-                        }
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        int i = BasisVectors.getIndex(dx, dy);
+                        if (latticeLayout[x][y] != PointType.FLUID) continue;
+                        if (latticeLayout[x + dx][y + dy] == PointType.BOUNDARY) {
+                            boolean verticalBoundary = latticeLayout[x + dx][y] == PointType.BOUNDARY;
+                            boolean horizontalBoundary = latticeLayout[x][y + dy] == PointType.BOUNDARY;
+                            int newdx = dx * (verticalBoundary || !horizontalBoundary ? -1 : 1);
+                            int newdy = dy * (horizontalBoundary || !verticalBoundary ? -1 : 1);
+                            int newIndex = BasisVectors.getIndex(newdx, newdy);
+                            latticeBuffer[x + dx + newdx][y + dy + newdy][newIndex] = lattice[x][y][i];
+                        } else
+                            latticeBuffer[x + dx][y + dy][i] = lattice[x][y][i];
                     }
-                    else
-                        latticeBuffer[x + (int) D2Q9Vectors[i].x][y + (int) D2Q9Vectors[i].y][i] = lattice[x][y][i];
                 }
             }
         }
@@ -200,10 +160,10 @@ public class LBSimulator extends AbstractGame {
             for (int y = 0; y < latticeH; y++) {
                 density = calculateLocalDensity(x, y);
                 velocity = calculateLocalVelocity(x, y);
-                for (VectorDirections d : VectorDirections.values()) {
-                    int i = d.getIndex();
-                    eDotVel = D2Q9Vectors[i].dot(velocity);
-                    eqDist = density * vectorWeights[i]
+                for (BasisVectors d : BasisVectors.values()) {
+                    int i = BasisVectors.getIndex((int) d.getVector().x, (int) d.getVector().y);
+                    eDotVel = d.getVector().dot(velocity);
+                    eqDist = density * d.getWeight()
                             * (1 + 3 * eDotVel
                             - (3./2.) * velocity.dot(velocity)
                             + (9./2.) * eDotVel * eDotVel);
@@ -224,9 +184,12 @@ public class LBSimulator extends AbstractGame {
 
     private Vector2d calculateLocalVelocity(int x, int y) {
         Vector2d localVelocity = new Vector2d(0, 0);
-        for (int i = 0; i < 9; i++) {
-            localVelocity.x += lattice[x][y][i] * D2Q9Vectors[i].x;
-            localVelocity.y += lattice[x][y][i] * D2Q9Vectors[i].y;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                int i = BasisVectors.getIndex(dx, dy);
+                localVelocity.x += lattice[x][y][i] * dx;
+                localVelocity.y += lattice[x][y][i] * dy;
+            }
         }
         double localDensity = calculateLocalDensity(x, y);
         if (localDensity != 0)
