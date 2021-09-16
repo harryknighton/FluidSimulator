@@ -1,11 +1,10 @@
-package uk.co.harrysstuff.fluids;
+package main.java.uk.co.harrysstuff.fluids;
 
-import uk.co.harrysstuff.colours.Conversions;
-import uk.co.harrysstuff.colours.HSV;
+import uk.co.harrysstuff.engine.colours.Conversions;
+import uk.co.harrysstuff.engine.colours.HSV;
 import uk.co.harrysstuff.engine.AbstractGame;
 import uk.co.harrysstuff.engine.GameContainer;
 
-import javax.vecmath.Vector2d;
 import javax.vecmath.Vector2f;
 
 
@@ -14,14 +13,14 @@ import javax.vecmath.Vector2f;
  * @author Harry Knighton
  */
 public class LBSimulator extends AbstractGame {
-    private final int latticeW;
-    private final int latticeH;
-    private final float[][][] lattice;
-    private final float[][][] latticeBuffer;
-    private final PointType [][] latticeLayout;
+    protected final int latticeW;
+    protected final int latticeH;
+    protected final float[][][] lattice;
+    protected final float[][][] latticeBuffer;
+    protected final PointType[][] latticeLayout;
 
-    private static final float RELAXATION_RATE = 2;  // should be in [0.5, 2]
-    private float maxDensity = -1f;
+    protected static final float RELAXATION_RATE = 2;  // should be in [0.5, 2]
+    protected float maxDensity = -1f;
 
     /**
      * Initialises the lattice arrays and layout
@@ -123,7 +122,7 @@ public class LBSimulator extends AbstractGame {
      * Streaming step of the LBM
      * Moves all particles in the direction of their basis vector one unit
      */
-    private void stream() {
+    protected void stream() {
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 for (int dx = -1; dx <= 1; dx++) {
@@ -154,7 +153,7 @@ public class LBSimulator extends AbstractGame {
      * Collision step of the LBM
      * Resolves internal collisions between particles and redistribution of particles between basis vectors
      */
-    private void collisions() {
+    protected void collisions() {
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 float density = calculateLocalDensity(x, y);
@@ -177,7 +176,7 @@ public class LBSimulator extends AbstractGame {
         }
     }
 
-    private float calculateLocalDensity(int x, int y) {
+    protected float calculateLocalDensity(int x, int y) {
         float localDensity = 0f;
         for (int i = 0; i < 9; i++) {
             localDensity += lattice[x][y][i];
@@ -185,7 +184,7 @@ public class LBSimulator extends AbstractGame {
         return localDensity;
     }
 
-    private Vector2f calculateLocalVelocity(int x, int y) {
+    protected Vector2f calculateLocalVelocity(int x, int y) {
         Vector2f localVelocity = new Vector2f(0, 0);
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
@@ -200,13 +199,13 @@ public class LBSimulator extends AbstractGame {
         return localVelocity;
     }
 
-    private float getWeight(int x, int y) {
+    protected float getWeight(int x, int y) {
         if (x == 0 && y == 0) return 4/9f;
         else if (x == 0 || y == 0) return 1/9f;
         else return 1/36f;
     }
 
-    private int getIndex(int dx, int dy) {
+    protected int getIndex(int dx, int dy) {
         return dx + 3*dy + 4;
     }
 
@@ -215,7 +214,7 @@ public class LBSimulator extends AbstractGame {
         // TODO: Add examples
         // TODO: Load lattice from image/in-app creator
         GameContainer gc = new GameContainer();
-        LBSimulator sim = new LBSimulator(128, 128);
+        ParallelLBSimulator sim = new ParallelLBSimulator(128, 128);
         sim.bind_container(gc);
         gc.start(sim, "Lattice-Boltzmann Simulator");
     }
