@@ -6,6 +6,7 @@ import uk.co.harrysstuff.engine.AbstractGame;
 import uk.co.harrysstuff.engine.GameContainer;
 
 import javax.vecmath.Vector2d;
+import javax.vecmath.Vector2f;
 
 
 /**
@@ -15,11 +16,11 @@ import javax.vecmath.Vector2d;
 public class LBSimulator extends AbstractGame {
     private final int latticeW;
     private final int latticeH;
-    private final double[][][] lattice;
-    private final double[][][] latticeBuffer;
+    private final float[][][] lattice;
+    private final float[][][] latticeBuffer;
     private final PointType [][] latticeLayout;
 
-    private static final double RELAXATION_RATE = 2;  // should be in [0.5, 2]
+    private static final float RELAXATION_RATE = 2;  // should be in [0.5, 2]
     private float maxDensity = -1f;
 
     /**
@@ -30,15 +31,15 @@ public class LBSimulator extends AbstractGame {
     public LBSimulator(int width, int height) {
         this.latticeW = width;
         this.latticeH = height;
-        lattice = new double[latticeW][latticeH][9];
-        latticeBuffer = new double[latticeW][latticeH][9];
+        lattice = new float[latticeW][latticeH][9];
+        latticeBuffer = new float[latticeW][latticeH][9];
         latticeLayout = new PointType[latticeW][latticeH];
 
         // Zero lattice
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
                 for (int i = 0; i < 9; i++) {
-                    lattice[x][y][i] = 5;
+                    lattice[x][y][i] = 5f;
                     latticeBuffer[x][y][i] = 0;
                 }
             }
@@ -58,11 +59,11 @@ public class LBSimulator extends AbstractGame {
         }
 
         // Place fluid
-        int downright = BasisVectors.getIndex(1, 1);
-        Vector2d midpoint = new Vector2d(latticeW/2, latticeH/2);
+        int downright = getIndex(1, 1);
+        Vector2f midpoint = new Vector2f(latticeW/2, latticeH/2);
         for (int x = -20; x <= 20; x++) {
             for (int y = -20; y <= 20; y++) {
-                double dist = x*x + y*y;
+                float dist = x*x + y*y;
                 if (latticeLayout[(int)midpoint.x + x][(int)midpoint.y + y] == PointType.BOUNDARY) continue;
                 if (dist <= 40)
                     lattice[(int)midpoint.x + x][(int)midpoint.y + y][downright]
@@ -109,7 +110,7 @@ public class LBSimulator extends AbstractGame {
     @Override
     public void update() {
         // TODO: Parallelize
-        // TODO: Add timestep
+        // TODO: Add time step
         if (counter == 2) {
             counter = 0;
             collisions();
@@ -127,14 +128,14 @@ public class LBSimulator extends AbstractGame {
             for (int y = 0; y < latticeH; y++) {
                 for (int dx = -1; dx <= 1; dx++) {
                     for (int dy = -1; dy <= 1; dy++) {
-                        int i = BasisVectors.getIndex(dx, dy);
+                        int i = getIndex(dx, dy);
                         if (latticeLayout[x][y] != PointType.FLUID) continue;
                         if (latticeLayout[x + dx][y + dy] == PointType.BOUNDARY) {
                             boolean verticalBoundary = latticeLayout[x + dx][y] == PointType.BOUNDARY;
                             boolean horizontalBoundary = latticeLayout[x][y + dy] == PointType.BOUNDARY;
                             int newdx = dx * (verticalBoundary || !horizontalBoundary ? -1 : 1);
                             int newdy = dy * (horizontalBoundary || !verticalBoundary ? -1 : 1);
-                            int newIndex = BasisVectors.getIndex(newdx, newdy);
+                            int newIndex = getIndex(newdx, newdy);
                             latticeBuffer[x + dx + newdx][y + dy + newdy][newIndex] = lattice[x][y][i];
                         } else
                             latticeBuffer[x + dx][y + dy][i] = lattice[x][y][i];
@@ -154,21 +155,23 @@ public class LBSimulator extends AbstractGame {
      * Resolves internal collisions between particles and redistribution of particles between basis vectors
      */
     private void collisions() {
-        Vector2d velocity;
-        double eqDist, density, eDotVel;
         for (int x = 0; x < latticeW; x++) {
             for (int y = 0; y < latticeH; y++) {
-                density = calculateLocalDensity(x, y);
-                velocity = calculateLocalVelocity(x, y);
-                for (BasisVectors d : BasisVectors.values()) {
-                    int i = BasisVectors.getIndex((int) d.getVector().x, (int) d.getVector().y);
-                    eDotVel = d.getVector().dot(velocity);
-                    eqDist = density * d.getWeight()
-                            * (1 + 3 * eDotVel
-                            - (3./2.) * velocity.dot(velocity)
-                            + (9./2.) * eDotVel * eDotVel);
-                    lattice[x][y][i] += (1. / RELAXATION_RATE) * (eqDist - lattice[x][y][i]);
+                float density = calculateLocalDensity(x, y);
+                Vector2f velocity = calculateLocalVelocity(x, y);
 
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        int i = getIndex(dx, dy);
+                        float eDotVel = dx * velocity.x + dy * velocity.y;
+                        // Calculate equilibrium density
+                        float eqDist = density * getWeight(dx, dy)
+                                * (1 + 3f * eDotVel
+                                - (3/2f) * (velocity.x * velocity.x + velocity.y * velocity.y)
+                                + (9/2f) * eDotVel * eDotVel);
+                        // Relax particles towards equilibrium
+                        lattice[x][y][i] += (1. / RELAXATION_RATE) * (eqDist - lattice[x][y][i]);
+                    }
                 }
             }
         }
@@ -182,19 +185,29 @@ public class LBSimulator extends AbstractGame {
         return localDensity;
     }
 
-    private Vector2d calculateLocalVelocity(int x, int y) {
-        Vector2d localVelocity = new Vector2d(0, 0);
+    private Vector2f calculateLocalVelocity(int x, int y) {
+        Vector2f localVelocity = new Vector2f(0, 0);
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
-                int i = BasisVectors.getIndex(dx, dy);
+                int i = getIndex(dx, dy);
                 localVelocity.x += lattice[x][y][i] * dx;
                 localVelocity.y += lattice[x][y][i] * dy;
             }
         }
-        double localDensity = calculateLocalDensity(x, y);
+        float localDensity = calculateLocalDensity(x, y);
         if (localDensity != 0)
             localVelocity.scale(1f / localDensity);
         return localVelocity;
+    }
+
+    private float getWeight(int x, int y) {
+        if (x == 0 && y == 0) return 4/9f;
+        else if (x == 0 || y == 0) return 1/9f;
+        else return 1/36f;
+    }
+
+    private int getIndex(int dx, int dy) {
+        return dx + 3*dy + 4;
     }
 
     public static void main(String[] args) {
